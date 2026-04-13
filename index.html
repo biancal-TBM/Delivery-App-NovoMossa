@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NovoMossa">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a56db">
+<title>NovoMossa — Gestion des livraisons</title>
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiTm92b01vc3NhIiwic2hvcnRfbmFtZSI6Ik5vdm9Nb3NzYSIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjZjFmNWY5IiwidGhlbWVfY29sb3IiOiIjMWE1NmRiIiwiaWNvbnMiOlt7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXdNQzl6ZG1jaUlIQnlaWE5sY25abFFYTndaV04wVW1GMGFXODlJbmhOYVc1WlRXbHVJRzFsWlhRaUlIWnBaWGRDYjNnOUlqQWdNQ0F4TmpBZ01UWXdJajQ4Y21WamRDQm1hV3hzUFNKak1UWXdNakl3SW1ZK1BDOW1kbWNnUGp3dmMzWm5QZz09Iiwic2l6ZXMiOiIxNngxNiIsInR5cGUiOiJpbWFnZS9zdmcreG1sIn1dfQ==">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html { height: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; min-height: 100%; height: 100%; overflow-x: hidden; }
+  #root { min-height: 100vh; }
+  input, select, textarea, button { font-family: inherit; }
+  input[type="date"], input[type="time"] { color-scheme: light; }
+  * { -webkit-overflow-scrolling: touch; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #1a56db !important; box-shadow: 0 0 0 3px rgba(26,86,219,0.12); }
+  button:active { transform: scale(0.97); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+
+const STATUS = { PENDING:"pending", DELIVERED:"delivered", DELAYED:"delayed", AWAITING:"awaiting", APPROVED:"approved", REJECTED:"rejected" };
+const STATUS_LABELS = { pending:"En attente", delivered:"Livré", delayed:"Retardé", awaiting:"Approbation", approved:"Approuvé", rejected:"Rejeté" };
+const STATUS_COLORS = {
+  pending:  { bg:"#fff3e0", text:"#b45309", border:"#f59e0b" },
+  delivered:{ bg:"#f0fdf4", text:"#166534", border:"#4ade80" },
+  delayed:  { bg:"#fef2f2", text:"#991b1b", border:"#f87171" },
+  awaiting: { bg:"#eff6ff", text:"#1e40af", border:"#60a5fa" },
+  approved: { bg:"#f0fdf4", text:"#166534", border:"#4ade80" },
+  rejected: { bg:"#fef2f2", text:"#991b1b", border:"#f87171" },
+};
+const ROLES = { ADMIN:"admin", STAFF:"staff", DRIVER:"driver", SALES:"sales" };
+const ROLE_LABELS = { admin:"Administrateur", staff:"Bureau", driver:"Chauffeur", sales:"Commercial" };
+const HOURS = Array.from({length:13}, (_,i) => i+7);
+const fmt = d => d.toISOString().split("T")[0];
+const today = new Date();
+const todayStr = fmt(today);
+const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+const dayAfter = new Date(today); dayAfter.setDate(today.getDate()+2);
+
+// ─── SEED DATA ────────────────────────────────────────────────────────────────
+
+const SEED_USERS = [
+  { id:"u1", username:"admin",   pin:"1234", role:ROLES.ADMIN,  name:"Marie Dupont",   active:true, phone:"+509 3700-0001" },
+  { id:"u2", username:"staff1",  pin:"2222", role:ROLES.STAFF,  name:"Jean Pierre",    active:true, phone:"+509 3700-0002" },
+  { id:"u3", username:"driver1", pin:"3333", role:ROLES.DRIVER, name:"Marc Antoine",   active:true, phone:"+509 3700-0003" },
+  { id:"u4", username:"driver2", pin:"4444", role:ROLES.DRIVER, name:"Luc Bernard",    active:true, phone:"+509 3700-0004" },
+  { id:"u5", username:"sales1",  pin:"5555", role:ROLES.SALES,  name:"Sophie Martin",  active:true, phone:"+509 3700-0005" },
+];
+
+const SEED_CLIENTS = [
+  { name:"Acme Corporation",     phone:"+509 3800-1001", address:"15 Rue des Palmiers, Pétion-Ville" },
+  { name:"Global Trading S.A.",  phone:"+509 3800-1002", address:"8 Bvd Toussaint Louverture, PAP" },
+  { name:"Boutique Lumière",     phone:"+509 3800-1003", address:"22 Rue Capois, Port-au-Prince" },
+  { name:"Maison Élégance",      phone:"+509 3800-1004", address:"5 Avenue Pan-Américaine, Pétion-Ville" },
+  { name:"Les Tropiques SARL",   phone:"+509 3800-1005", address:"100 Route de Delmas, Delmas" },
+];
+
+const SEED_DELIVERIES = [
+  { id:"d1", invoiceNumber:"INV-2025-001", clientName:"Acme Corporation",    clientPhone:"+509 3800-1001", clientAddress:"15 Rue des Palmiers, Pétion-Ville",    salesRepName:"Sophie Martin", salesRepPhone:"+509 3700-0005", driverId:"u3", deliveryDate:todayStr,    deliveryTime:"09:00", deliveryTimeRange:"09:00-11:00", status:STATUS.PENDING,    lat:18.5114, lng:-72.2863, createdBy:"u1", createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() },
+  { id:"d2", invoiceNumber:"INV-2025-002", clientName:"Global Trading S.A.", clientPhone:"+509 3800-1002", clientAddress:"8 Bvd Toussaint Louverture, PAP",       salesRepName:"Sophie Martin", salesRepPhone:"+509 3700-0005", driverId:"u3", deliveryDate:todayStr,    deliveryTime:"14:00", deliveryTimeRange:"14:00-16:00", status:STATUS.DELIVERED,  lat:18.5448, lng:-72.3387, createdBy:"u1", createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() },
+  { id:"d3", invoiceNumber:"INV-2025-003", clientName:"Boutique Lumière",    clientPhone:"+509 3800-1003", clientAddress:"22 Rue Capois, Port-au-Prince",          salesRepName:"Sophie Martin", salesRepPhone:"+509 3700-0005", driverId:"u4", deliveryDate:fmt(tomorrow), deliveryTime:"10:00", deliveryTimeRange:"10:00-12:00", status:STATUS.PENDING,    lat:18.5428, lng:-72.3385, createdBy:"u1", createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() },
+  { id:"d4", invoiceNumber:"INV-2025-004", clientName:"Maison Élégance",     clientPhone:"+509 3800-1004", clientAddress:"5 Avenue Pan-Américaine, Pétion-Ville",  salesRepName:"Jean Pierre",   salesRepPhone:"+509 3700-0002", driverId:"u4", deliveryDate:fmt(dayAfter), deliveryTime:"08:00", deliveryTimeRange:"08:00-10:00", status:STATUS.DELAYED,    lat:18.5128, lng:-72.2872, createdBy:"u2", createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() },
+];
+
+// ─── NOTIFICATION SERVICE ─────────────────────────────────────────────────────
+
+const NS = {
+  mode: "mock",
+  t: {
+    initial: d => `Bonjour ${d.clientName},\nMerci pour votre achat. Nous prévoyons d'effectuer cette livraison le ${d.deliveryDate} à ${d.deliveryTimeRange}.\nUn représentant vous contactera afin de confirmer que cela vous convient.\n— NovoMossa`,
+    delivered: d => `Bonjour ${d.clientName},\nCe message confirme que votre commande (${d.invoiceNumber}) a bien été livrée.\nMerci pour votre confiance.\n— NovoMossa`,
+    delayed: d => `Bonjour ${d.clientName},\nVotre livraison est retardée et prévue pour le ${d.deliveryDate} à ${d.deliveryTimeRange}.\nNous nous excusons pour ce contretemps. Un représentant vous contactera.\n— NovoMossa`,
+    driver: (d,n) => `Bonjour ${n},\nVous avez une livraison aujourd'hui :\nClient : ${d.clientName}\nAdresse : ${d.clientAddress}\nCréneau : ${d.deliveryTimeRange} | Facture : ${d.invoiceNumber}\n— NovoMossa`,
+    approved: (d,n) => `Bonjour ${n},\nVotre demande de livraison pour ${d.clientName} le ${d.deliveryDate} a été approuvée.\n— NovoMossa`,
+    rejected: (d,n) => `Bonjour ${n},\nVotre demande pour ${d.clientName} a été rejetée. Veuillez contacter le bureau.\n— NovoMossa`,
+  },
+  send(to, message) { return { to, message, sentAt: new Date().toISOString() }; }
+};
+
+// ─── LOCAL STORAGE HOOK ───────────────────────────────────────────────────────
+
+const useLS = (key, init) => {
+  const [val, setVal] = useState(() => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : init; } catch { return init; } });
+  const set = useCallback(v => { setVal(v); try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }, [key]);
+  return [val, set];
+};
+
+// ─── SVG ICON ─────────────────────────────────────────────────────────────────
+
+const Icon = ({ n, s=20, c="currentColor" }) => {
+  const P = {
+    plus:"M12 5v14M5 12h14", x:"M18 6L6 18M6 6l12 12", check:"M20 6L9 17l-5-5",
+    cal:"M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z",
+    map:"M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 7a3 3 0 100 6 3 3 0 000-6z",
+    list:"M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1",
+    cog:"M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z",
+    bell:"M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0",
+    truck:"M1 3h15v13H1zM16 8h4l3 3v5h-7V8zM5.5 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM18.5 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",
+    edit:"M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
+    del:"M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
+    out:"M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9",
+    cl:"M15 18l-6-6 6-6", cr:"M9 18l6-6-6-6",
+  };
+  return React.createElement('svg', { width:s, height:s, viewBox:"0 0 24 24", fill:"none", stroke:c, strokeWidth:"2", strokeLinecap:"round", strokeLinejoin:"round" },
+    React.createElement('path', { d: P[n] || "" }));
+};
+
+// ─── STATUS BADGE ─────────────────────────────────────────────────────────────
+
+const Badge = ({ status, sm }) => {
+  const c = STATUS_COLORS[status] || STATUS_COLORS.pending;
+  return React.createElement('span', { style:{ background:c.bg, color:c.text, border:`1px solid ${c.border}`, borderRadius:20, padding:sm?"2px 8px":"4px 12px", fontSize:sm?11:12, fontWeight:700, whiteSpace:"nowrap" } }, STATUS_LABELS[status] || status);
+};
+
+// ─── MODAL ────────────────────────────────────────────────────────────────────
+
+const Modal = ({ title, onClose, children, wide }) =>
+  React.createElement('div', {
+    style:{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16, overflowY:"auto" },
+    onClick: onClose
+  },
+    React.createElement('div', {
+      style:{ background:"#fff", borderRadius:20, padding:24, width:"100%", maxWidth:wide?700:460, maxHeight:"90vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,0.35)" },
+      onClick: e => e.stopPropagation()
+    },
+      React.createElement('div', { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 } },
+        React.createElement('h2', { style:{ margin:0, fontSize:18, fontWeight:800, color:"#0f172a" } }, title),
+        React.createElement('button', { onClick:onClose, style:{ background:"none", border:"none", cursor:"pointer", padding:6, color:"#64748b", display:"flex" } }, React.createElement(Icon, { n:"x", s:20 }))
+      ),
+      children
+    )
+  );
+
+// ─── FORM HELPERS ─────────────────────────────────────────────────────────────
+
+const Field = ({ label, req, children }) =>
+  React.createElement('div', { style:{ marginBottom:14 } },
+    React.createElement('label', { style:{ display:"block", fontSize:11, fontWeight:700, color:"#64748b", marginBottom:5, textTransform:"uppercase", letterSpacing:"0.05em" } },
+      label, req && React.createElement('span', { style:{ color:"#ef4444", marginLeft:2 } }, "*")
+    ),
+    children
+  );
+
+const IS = { width:"100%", padding:"10px 13px", border:"1.5px solid #e2e8f0", borderRadius:10, fontSize:14, background:"#fff", color:"#0f172a", outline:"none", boxSizing:"border-box" };
+const SS = { ...IS, cursor:"pointer", appearance:"none", backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 12px center", paddingRight:36 };
+
+const Btn = ({ children, onClick, variant="primary", type="button", disabled, fw, sm, icon }) => {
+  const V = {
+    primary: { background:"#1a56db", color:"#fff", border:"none" },
+    secondary: { background:"#f8fafc", color:"#0f172a", border:"1px solid #e2e8f0" },
+    danger: { background:"#ef4444", color:"#fff", border:"none" },
+    success: { background:"#22c55e", color:"#fff", border:"none" },
+    ghost: { background:"transparent", color:"#64748b", border:"1px solid #e2e8f0" },
+  };
+  return React.createElement('button', {
+    type, onClick, disabled,
+    style:{ ...V[variant], borderRadius:10, padding:sm?"7px 13px":"10px 20px", fontSize:sm?13:14, fontWeight:700, cursor:disabled?"not-allowed":"pointer", opacity:disabled?0.5:1, display:"inline-flex", alignItems:"center", gap:7, width:fw?"100%":undefined, justifyContent:"center", transition:"all 0.15s" }
+  }, icon && React.createElement(Icon, { n:icon, s:15, c:"currentColor" }), children);
+};
+
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
+
+const Login = ({ users, onLogin }) => {
+  const [uname, setUname] = useState("");
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const [step, setStep] = useState("u");
+
+  const goPin = () => {
+    const u = users.find(x => x.username === uname && x.active);
+    if (!u) { setErr("Identifiant introuvable"); return; }
+    setErr(""); setStep("p");
+  };
+
+  const tryPin = digit => {
+    if (pin.length >= 4) return;
+    const next = pin + digit;
+    setPin(next);
+    if (next.length === 4) {
+      const u = users.find(x => x.username === uname && x.pin === next && x.active);
+      if (!u) { setErr("PIN incorrect"); setTimeout(() => setPin(""), 700); return; }
+      onLogin(u);
+    }
+  };
+
+  const user = users.find(u => u.username === uname);
+
+  return React.createElement('div', { style:{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(145deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%)", padding:20 } },
+    React.createElement('div', { style:{ background:"#fff", borderRadius:24, padding:"40px 32px", width:"100%", maxWidth:360, boxShadow:"0 32px 80px rgba(0,0,0,0.5)" } },
+      React.createElement('div', { style:{ textAlign:"center", marginBottom:32 } },
+        React.createElement('div', { style:{ width:60, height:60, borderRadius:16, background:"linear-gradient(135deg,#1a56db,#3b82f6)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", boxShadow:"0 8px 24px rgba(26,86,219,0.4)" } },
+          React.createElement(Icon, { n:"truck", s:28, c:"#fff" })
+        ),
+        React.createElement('h1', { style:{ margin:0, fontSize:26, fontWeight:900, color:"#0f172a", letterSpacing:"-0.5px" } }, "NovoMossa"),
+        React.createElement('p', { style:{ margin:"6px 0 0", fontSize:13, color:"#94a3b8" } }, "Gestion des livraisons")
+      ),
+
+      step === "u" ?
+        React.createElement(React.Fragment, null,
+          React.createElement(Field, { label:"Identifiant", req:true },
+            React.createElement('input', { style:IS, value:uname, onChange:e=>setUname(e.target.value), placeholder:"Entrez votre identifiant", onKeyDown:e=>e.key==="Enter"&&goPin(), autoFocus:true })
+          ),
+          err && React.createElement('p', { style:{ color:"#ef4444", fontSize:13, marginBottom:12 } }, err),
+          React.createElement(Btn, { fw:true, onClick:goPin }, "Continuer →"),
+          React.createElement('p', { style:{ textAlign:"center", marginTop:20, fontSize:11, color:"#cbd5e1", lineHeight:1.8 } }, "Comptes démo:", React.createElement('br', null), "admin/1234 · staff1/2222 · driver1/3333")
+        ) :
+        React.createElement(React.Fragment, null,
+          React.createElement('div', { style:{ textAlign:"center", marginBottom:24 } },
+            React.createElement('p', { style:{ fontSize:16, color:"#0f172a", fontWeight:800, margin:0 } }, "Bonjour, ", user?.name || uname),
+            React.createElement('p', { style:{ fontSize:13, color:"#94a3b8", marginTop:4 } }, "Entrez votre PIN à 4 chiffres")
+          ),
+          React.createElement('div', { style:{ display:"flex", justifyContent:"center", gap:16, marginBottom:28 } },
+            [0,1,2,3].map(i => React.createElement('div', { key:i, style:{ width:14, height:14, borderRadius:"50%", background:i<pin.length?"#1a56db":"#e2e8f0", transition:"background 0.2s, transform 0.2s", transform:i<pin.length?"scale(1.15)":"scale(1)" } }))
+          ),
+          React.createElement('div', { style:{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 } },
+            [1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i) =>
+              React.createElement('button', {
+                key:i,
+                onClick: () => { if (d==="⌫") setPin(p=>p.slice(0,-1)); else if (d!=="") tryPin(String(d)); },
+                style:{ padding:"16px 0", border:"1.5px solid #e2e8f0", borderRadius:12, fontSize:20, fontWeight:700, cursor:d===""?"default":"pointer", background:d===""?"transparent":"#f8fafc", color:"#0f172a", visibility:d===""?"hidden":"visible", transition:"background 0.1s" }
+              }, d)
+            )
+          ),
+          err && React.createElement('p', { style:{ color:"#ef4444", fontSize:13, textAlign:"center", marginBottom:8 } }, err),
+          React.createElement('button', { onClick:()=>{setStep("u");setPin("");setErr("");}, style:{ background:"none", border:"none", color:"#94a3b8", fontSize:13, cursor:"pointer", width:"100%", marginTop:4, padding:"8px 0" } }, "← Changer d'utilisateur")
+        )
+    )
+  );
+};
+
+// ─── DELIVERY DETAIL MODAL ────────────────────────────────────────────────────
+
+const DetailModal = ({ del, users, onClose, onStatus, me }) => {
+  const driver = users.find(u => u.id === del.driverId);
+  const canAct = [ROLES.ADMIN, ROLES.STAFF, ROLES.DRIVER].includes(me.role);
+  const [showDelay, setShowDelay] = useState(false);
+  const [nd, setNd] = useState(del.deliveryDate);
+  const [nt, setNt] = useState(del.deliveryTime);
+  const [nr, setNr] = useState(del.deliveryTimeRange);
+
+  const rows = [
+    ["Facture", del.invoiceNumber], ["Client", del.clientName], ["Téléphone", del.clientPhone],
+    ["Adresse", del.clientAddress], ["Représentant", del.salesRepName], ["Tél. rep.", del.salesRepPhone],
+    ["Chauffeur", driver?.name||"—"], ["Date", del.deliveryDate], ["Créneau", del.deliveryTimeRange],
+  ];
+
+  return React.createElement(Modal, { title:`Livraison — ${del.invoiceNumber}`, onClose },
+    React.createElement('div', { style:{ marginBottom:14 } }, React.createElement(Badge, { status:del.status })),
+    React.createElement('table', { style:{ width:"100%", borderCollapse:"collapse", fontSize:14 } },
+      React.createElement('tbody', null,
+        rows.map(([k,v]) => React.createElement('tr', { key:k, style:{ borderBottom:"1px solid #f1f5f9" } },
+          React.createElement('td', { style:{ padding:"9px 0", color:"#64748b", fontWeight:600, width:"40%", fontSize:13 } }, k),
+          React.createElement('td', { style:{ padding:"9px 0", color:"#0f172a" } }, v)
+        ))
+      )
+    ),
+    canAct && del.status !== STATUS.DELIVERED &&
+      React.createElement('div', { style:{ marginTop:18, display:"flex", gap:10, flexWrap:"wrap" } },
+        React.createElement(Btn, { variant:"success", onClick:()=>{onStatus(del.id,STATUS.DELIVERED);onClose();}, icon:"check", sm:true }, "Marquer livré"),
+        !showDelay && React.createElement(Btn, { variant:"danger", onClick:()=>setShowDelay(true), sm:true }, "Retarder")
+      ),
+    showDelay &&
+      React.createElement('div', { style:{ marginTop:16, padding:16, background:"#f8fafc", borderRadius:12, border:"1px solid #e2e8f0" } },
+        React.createElement('p', { style:{ margin:"0 0 12px", fontWeight:800, fontSize:13, color:"#0f172a" } }, "Nouvelle planification"),
+        React.createElement('div', { style:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 } },
+          React.createElement(Field, { label:"Date" }, React.createElement('input', { type:"date", style:IS, value:nd, onChange:e=>setNd(e.target.value) })),
+          React.createElement(Field, { label:"Heure" }, React.createElement('input', { type:"time", style:IS, value:nt, onChange:e=>setNt(e.target.value) }))
+        ),
+        React.createElement(Field, { label:"Créneau" }, React.createElement('input', { style:IS, value:nr, onChange:e=>setNr(e.target.value), placeholder:"09:00-11:00" })),
+        React.createElement('div', { style:{ display:"flex", gap:10, marginTop:4 } },
+          React.createElement(Btn, { variant:"danger", sm:true, onClick:()=>{onStatus(del.id, STATUS.DELAYED, {deliveryDate:nd,deliveryTime:nt,deliveryTimeRange:nr}); onClose();} }, "Confirmer le retard"),
+          React.createElement(Btn, { variant:"ghost", sm:true, onClick:()=>setShowDelay(false) }, "Annuler")
+        )
+      ),
+    del.status === STATUS.AWAITING && [ROLES.ADMIN, ROLES.STAFF].includes(me.role) &&
+      React.createElement('div', { style:{ marginTop:16, display:"flex", gap:10 } },
+        React.createElement(Btn, { variant:"success", sm:true, onClick:()=>{onStatus(del.id,STATUS.APPROVED);onClose();} }, "✓ Approuver"),
+        React.createElement(Btn, { variant:"danger",  sm:true, onClick:()=>{onStatus(del.id,STATUS.REJECTED);onClose();} }, "✗ Rejeter")
+      )
+  );
+};
+
+// ─── DELIVERY FORM ────────────────────────────────────────────────────────────
+
+const DelForm = ({ users, clients, onSave, onClose, me, editing }) => {
+  const drivers = users.filter(u => u.role === ROLES.DRIVER && u.active);
+  const isDriver = me.role === ROLES.DRIVER;
+  const blank = { invoiceNumber:"", clientName:"", clientPhone:"", clientAddress:"", salesRepName:isDriver?me.name:"", salesRepPhone:isDriver?me.phone:"", driverId:isDriver?me.id:"", deliveryDate:todayStr, deliveryTime:"09:00", deliveryTimeRange:"09:00-11:00", status:isDriver?STATUS.AWAITING:STATUS.PENDING };
+  const [form, setForm] = useState(editing ? {...editing} : blank);
+  const [sugs, setSugs] = useState([]);
+  const [showS, setShowS] = useState(false);
+  const set = (k,v) => setForm(f => ({...f, [k]:v}));
+
+  const onCI = val => {
+    set("clientName", val);
+    if (val.length > 1) { const s = clients.filter(c => c.name.toLowerCase().includes(val.toLowerCase())); setSugs(s); setShowS(s.length > 0); }
+    else setShowS(false);
+  };
+  const pick = c => { setForm(f => ({...f, clientName:c.name, clientPhone:c.phone, clientAddress:c.address})); setShowS(false); };
+
+  const save = () => {
+    if (!form.invoiceNumber || !form.clientName || (!isDriver && !form.driverId)) { alert("Champs requis : N° facture, Client" + (isDriver ? "" : ", Chauffeur")); return; }
+    onSave(form);
+  };
+
+  return React.createElement(Modal, { title: editing ? "Modifier la livraison" : isDriver ? "Proposer une livraison" : "Nouvelle livraison", onClose, wide:true },
+    React.createElement('div', { style:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" } },
+      React.createElement(Field, { label:"N° Facture", req:true }, React.createElement('input', { style:IS, value:form.invoiceNumber, onChange:e=>set("invoiceNumber",e.target.value), placeholder:"INV-2025-001" })),
+      React.createElement('div', { style:{ position:"relative" } },
+        React.createElement(Field, { label:"Client", req:true }, React.createElement('input', { style:IS, value:form.clientName, onChange:e=>onCI(e.target.value), onBlur:()=>setTimeout(()=>setShowS(false),200), placeholder:"Commencez à taper..." })),
+        showS && React.createElement('div', { style:{ position:"absolute", top:"100%", left:0, right:0, zIndex:300, background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,0.12)", overflow:"hidden" } },
+          sugs.map(s => React.createElement('div', { key:s.name, onMouseDown:()=>pick(s), style:{ padding:"10px 12px", cursor:"pointer", borderBottom:"1px solid #f1f5f9", fontSize:13 } },
+            React.createElement('div', { style:{ fontWeight:700, color:"#0f172a" } }, s.name),
+            React.createElement('div', { style:{ fontSize:11, color:"#64748b", marginTop:2 } }, s.address)
+          ))
+        )
+      ),
+      React.createElement(Field, { label:"Tél. client" }, React.createElement('input', { style:IS, value:form.clientPhone, onChange:e=>set("clientPhone",e.target.value), placeholder:"+509 XXXX-XXXX" })),
+      React.createElement(Field, { label:"Adresse" }, React.createElement('input', { style:IS, value:form.clientAddress, onChange:e=>set("clientAddress",e.target.value), placeholder:"Adresse complète" })),
+      React.createElement(Field, { label:"Représentant" }, React.createElement('input', { style:IS, value:form.salesRepName, onChange:e=>set("salesRepName",e.target.value) })),
+      React.createElement(Field, { label:"Tél. représentant" }, React.createElement('input', { style:IS, value:form.salesRepPhone, onChange:e=>set("salesRepPhone",e.target.value) })),
+      !isDriver && React.createElement(Field, { label:"Chauffeur", req:true },
+        React.createElement('select', { style:SS, value:form.driverId, onChange:e=>set("driverId",e.target.value) },
+          React.createElement('option', { value:"" }, "— Sélectionner —"),
+          drivers.map(d => React.createElement('option', { key:d.id, value:d.id }, d.name))
+        )
+      ),
+      React.createElement(Field, { label:"Date", req:true }, React.createElement('input', { type:"date", style:IS, value:form.deliveryDate, onChange:e=>set("deliveryDate",e.target.value) })),
+      React.createElement(Field, { label:"Heure" }, React.createElement('input', { type:"time", style:IS, value:form.deliveryTime, onChange:e=>set("deliveryTime",e.target.value) })),
+      React.createElement(Field, { label:"Créneau" }, React.createElement('input', { style:IS, value:form.deliveryTimeRange, onChange:e=>set("deliveryTimeRange",e.target.value), placeholder:"09:00-11:00" }))
+    ),
+    React.createElement('div', { style:{ display:"flex", gap:10, marginTop:14 } },
+      React.createElement(Btn, { onClick:save, icon:"check" }, editing ? "Mettre à jour" : isDriver ? "Envoyer la demande" : "Enregistrer"),
+      React.createElement(Btn, { variant:"ghost", onClick:onClose }, "Annuler")
+    )
+  );
+};
+
+// ─── VIEW 1 : LISTE DES LIVRAISONS ───────────────────────────────────────────
+
+const ListView = ({ deliveries, users, me, onNew, onOpen }) => {
+  const [filt, setFilt] = useState("all");
+  const [search, setSearch] = useState("");
+  const [dFilt, setDFilt] = useState(me.role === ROLES.DRIVER ? me.id : "all");
+  const drivers = users.filter(u => u.role === ROLES.DRIVER);
+
+  let vis = deliveries;
+  if (me.role === ROLES.DRIVER) vis = vis.filter(d => d.driverId === me.id);
+  else if (dFilt !== "all") vis = vis.filter(d => d.driverId === dFilt);
+  if (filt !== "all") vis = vis.filter(d => d.status === filt);
+  if (search) vis = vis.filter(d => d.clientName.toLowerCase().includes(search.toLowerCase()) || d.invoiceNumber.toLowerCase().includes(search.toLowerCase()));
+  vis = [...vis].sort((a,b) => a.deliveryDate.localeCompare(b.deliveryDate));
+
+  const canCreate = [ROLES.ADMIN, ROLES.STAFF, ROLES.DRIVER].includes(me.role);
+
+  return React.createElement('div', { style:{ padding:"16px 16px 90px", maxWidth:700, margin:"0 auto" } },
+    React.createElement('div', { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 } },
+      React.createElement('h2', { style:{ margin:0, fontSize:22, fontWeight:900, color:"#0f172a", letterSpacing:"-0.5px" } }, "Livraisons"),
+      canCreate && React.createElement(Btn, { onClick:onNew, icon:"plus", sm:true }, "Nouvelle")
+    ),
+    React.createElement('input', { style:{ ...IS, marginBottom:10, paddingLeft:38, backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"12px center" }, value:search, onChange:e=>setSearch(e.target.value), placeholder:"Rechercher..." }),
+    React.createElement('div', { style:{ display:"flex", gap:7, marginBottom:10, overflowX:"auto", paddingBottom:4 } },
+      ["all","pending","delivered","delayed","awaiting"].map(s =>
+        React.createElement('button', { key:s, onClick:()=>setFilt(s), style:{ padding:"5px 13px", borderRadius:20, border:"1.5px solid", borderColor:filt===s?"#1a56db":"#e2e8f0", background:filt===s?"#1a56db":"#fff", color:filt===s?"#fff":"#64748b", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", transition:"all 0.15s" } },
+          s === "all" ? "Toutes" : STATUS_LABELS[s]
+        )
+      )
+    ),
+    [ROLES.ADMIN, ROLES.STAFF].includes(me.role) &&
+      React.createElement('select', { style:{ ...SS, marginBottom:12 }, value:dFilt, onChange:e=>setDFilt(e.target.value) },
+        React.createElement('option', { value:"all" }, "Tous les chauffeurs"),
+        drivers.map(d => React.createElement('option', { key:d.id, value:d.id }, d.name))
+      ),
+    vis.length === 0 ?
+      React.createElement('div', { style:{ textAlign:"center", padding:60, color:"#94a3b8" } },
+        React.createElement('div', { style:{ fontSize:40, marginBottom:12 } }, "📦"),
+        React.createElement('p', { style:{ fontSize:16, fontWeight:600 } }, "Aucune livraison"),
+        React.createElement('p', { style:{ fontSize:13, marginTop:4 } }, "Modifiez les filtres ou créez une nouvelle livraison")
+      ) :
+      vis.map(d => {
+        const driver = users.find(u => u.id === d.driverId);
+        const c = STATUS_COLORS[d.status];
+        const isToday = d.deliveryDate === todayStr;
+        return React.createElement('div', { key:d.id, onClick:()=>onOpen(d), style:{ background:"#fff", borderRadius:14, border:`1.5px solid ${c.border}`, padding:"14px 16px", cursor:"pointer", marginBottom:10, borderLeft:`5px solid ${c.border}`, transition:"box-shadow 0.15s" } },
+          React.createElement('div', { style:{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 } },
+            React.createElement('div', null,
+              React.createElement('div', { style:{ fontWeight:800, fontSize:15, color:"#0f172a" } }, d.clientName),
+              React.createElement('div', { style:{ fontSize:12, color:"#94a3b8", marginTop:2 } }, d.invoiceNumber)
+            ),
+            React.createElement('div', { style:{ display:"flex", gap:6, alignItems:"center" } },
+              isToday && React.createElement('span', { style:{ fontSize:10, background:"#1a56db", color:"#fff", padding:"2px 7px", borderRadius:10, fontWeight:700 } }, "Aujourd'hui"),
+              React.createElement(Badge, { status:d.status, sm:true })
+            )
+          ),
+          React.createElement('div', { style:{ display:"flex", gap:14, fontSize:12, color:"#64748b", flexWrap:"wrap" } },
+            React.createElement('span', null, "📅 ", d.deliveryDate),
+            React.createElement('span', null, "🕐 ", d.deliveryTimeRange),
+            driver && React.createElement('span', null, "🚚 ", driver.name)
+          ),
+          React.createElement('div', { style:{ fontSize:11, color:"#94a3b8", marginTop:5 } }, "📍 ", d.clientAddress)
+        );
+      })
+  );
+};
+
+// ─── VIEW 2 : CALENDRIER ──────────────────────────────────────────────────────
+
+const CalView = ({ deliveries, users, me, onOpen, onReschedule }) => {
+  const drivers = users.filter(u => u.role === ROLES.DRIVER);
+  const [selDrv, setSelDrv] = useState(me.role === ROLES.DRIVER ? me.id : (drivers[0]?.id || ""));
+  const [viewDate, setViewDate] = useState(todayStr);
+  const [dragId, setDragId] = useState(null);
+  const [dragHour, setDragHour] = useState(null);
+  const HOUR_H = 76;
+
+  const dayDels = deliveries.filter(d => d.deliveryDate === viewDate && d.driverId === selDrv);
+  const t2y = ts => { const [h,m] = ts.split(":").map(Number); return (h-7)*HOUR_H + (m/60)*HOUR_H; };
+  const fmtD = ds => { const d = new Date(ds+"T12:00:00"); return d.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" }); };
+  const prev = () => { const d = new Date(viewDate); d.setDate(d.getDate()-1); setViewDate(fmt(d)); };
+  const next = () => { const d = new Date(viewDate); d.setDate(d.getDate()+1); setViewDate(fmt(d)); };
+  const canDrag = [ROLES.ADMIN, ROLES.STAFF].includes(me.role);
+
+  const drop = hour => {
+    if (!dragId) return;
+    const d = deliveries.find(x => x.id === dragId);
+    if (!d) return;
+    const nt = `${String(hour).padStart(2,"0")}:00`;
+    const m = d.deliveryTimeRange.match(/(\d+):(\d+)-(\d+):(\d+)/);
+    const dur = m ? parseInt(m[3]) - parseInt(m[1]) : 2;
+    const nr = `${nt}-${String(Math.min(hour+dur,23)).padStart(2,"0")}:00`;
+    onReschedule(dragId, viewDate, nt, nr);
+    setDragId(null); setDragHour(null);
+  };
+
+  return React.createElement('div', { style:{ padding:"16px 0 90px", maxWidth:700, margin:"0 auto" } },
+    React.createElement('div', { style:{ padding:"0 16px 12px" } },
+      [ROLES.ADMIN, ROLES.STAFF].includes(me.role) &&
+        React.createElement('select', { style:{ ...SS, marginBottom:10 }, value:selDrv, onChange:e=>setSelDrv(e.target.value) },
+          drivers.map(d => React.createElement('option', { key:d.id, value:d.id }, d.name))
+        ),
+      React.createElement('div', { style:{ display:"flex", alignItems:"center", justifyContent:"space-between" } },
+        React.createElement('button', { onClick:prev, style:{ background:"none", border:"none", cursor:"pointer", padding:10, color:"#0f172a", display:"flex" } }, React.createElement(Icon, { n:"cl", s:22 })),
+        React.createElement('div', { style:{ textAlign:"center" } },
+          React.createElement('div', { style:{ fontWeight:800, fontSize:15, color:"#0f172a", textTransform:"capitalize" } }, fmtD(viewDate)),
+          viewDate === todayStr && React.createElement('span', { style:{ fontSize:10, background:"#1a56db", color:"#fff", padding:"2px 8px", borderRadius:10, marginTop:4, display:"inline-block" } }, "Aujourd'hui")
+        ),
+        React.createElement('button', { onClick:next, style:{ background:"none", border:"none", cursor:"pointer", padding:10, color:"#0f172a", display:"flex" } }, React.createElement(Icon, { n:"cr", s:22 }))
+      ),
+      canDrag && React.createElement('p', { style:{ textAlign:"center", fontSize:11, color:"#94a3b8", marginTop:6 } }, "✦ Glisser-déposer pour replanifier")
+    ),
+    React.createElement('div', { style:{ overflowY:"auto", maxHeight:"calc(100vh - 240px)", paddingBottom:8 } },
+      React.createElement('div', { style:{ position:"relative", minHeight:HOUR_H*13 } },
+        HOURS.map(h =>
+          React.createElement('div', { key:h, onDragOver:e=>{e.preventDefault();setDragHour(h);}, onDrop:()=>drop(h), style:{ height:HOUR_H, borderTop:"1px solid #f1f5f9", display:"flex", background:dragHour===h?"rgba(26,86,219,0.04)":"transparent" } },
+            React.createElement('div', { style:{ width:52, flexShrink:0, fontSize:11, color:"#cbd5e1", padding:"6px 8px 0", textAlign:"right" } }, `${String(h).padStart(2,"0")}:00`),
+            React.createElement('div', { style:{ flex:1, borderLeft:"1px solid #f1f5f9" } })
+          )
+        ),
+        dayDels.map(d => {
+          const top = t2y(d.deliveryTime);
+          const m = d.deliveryTimeRange.match(/(\d+):(\d+)-(\d+):(\d+)/);
+          const h2 = m ? ((parseInt(m[3])*60+parseInt(m[4]))-(parseInt(m[1])*60+parseInt(m[2])))/60*HOUR_H : HOUR_H;
+          const c = STATUS_COLORS[d.status];
+          return React.createElement('div', {
+            key:d.id,
+            draggable:canDrag,
+            onDragStart:()=>setDragId(d.id),
+            onDragEnd:()=>{setDragId(null);setDragHour(null);},
+            onClick:()=>onOpen(d),
+            style:{ position:"absolute", left:60, right:8, top, height:Math.max(h2,52), background:c.bg, border:`1.5px solid ${c.border}`, borderRadius:10, padding:"6px 10px", cursor:"pointer", borderLeft:`4px solid ${c.border}`, boxSizing:"border-box", overflow:"hidden", opacity:dragId===d.id?0.4:1, zIndex:10, transition:"opacity 0.15s" }
+          },
+            React.createElement('div', { style:{ fontWeight:800, fontSize:13, color:c.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" } }, d.clientName),
+            React.createElement('div', { style:{ fontSize:11, color:c.text, opacity:0.8 } }, d.deliveryTimeRange),
+            h2 > 58 && React.createElement('div', { style:{ fontSize:11, color:c.text, opacity:0.65, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, d.clientAddress)
+          );
+        })
+      )
+    ),
+    dayDels.length === 0 && React.createElement('div', { style:{ textAlign:"center", padding:40, color:"#94a3b8" } },
+      React.createElement('div', { style:{ fontSize:36, marginBottom:10 } }, "📅"),
+      React.createElement('p', null, "Aucune livraison ce jour")
+    )
+  );
+};
+
+// ─── VIEW 3 : CARTE ───────────────────────────────────────────────────────────
+
+const MapView = ({ deliveries, users, me }) => {
+  const drivers = users.filter(u => u.role === ROLES.DRIVER);
+  const [selDrv, setSelDrv] = useState(me.role === ROLES.DRIVER ? me.id : (drivers[0]?.id || ""));
+  const [selDate, setSelDate] = useState(todayStr);
+  const [selDel, setSelDel] = useState(null);
+  const canvasRef = useRef(null);
+
+  const vis = deliveries.filter(d => d.driverId === selDrv && d.deliveryDate === selDate).sort((a,b) => a.deliveryTime.localeCompare(b.deliveryTime));
+  const dObj = users.find(u => u.id === selDrv);
+
+  const LAT_MIN=18.49, LAT_MAX=18.57, LNG_MIN=-72.42, LNG_MAX=-72.26;
+  const toXY = (lat, lng, W, H) => ({ x:((lng-LNG_MIN)/(LNG_MAX-LNG_MIN))*W, y:H-((lat-LAT_MIN)/(LAT_MAX-LAT_MIN))*H });
+
+  useEffect(() => {
+    const cv = canvasRef.current; if (!cv) return;
+    const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+    ctx.clearRect(0,0,W,H);
+    const grad = ctx.createLinearGradient(0,0,W,H);
+    grad.addColorStop(0,"#d4e8c2"); grad.addColorStop(1,"#c8e0b8");
+    ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = "#b8d4a8"; ctx.lineWidth = 1;
+    for (let i=1;i<8;i++){ctx.beginPath();ctx.moveTo(0,H*i/8);ctx.lineTo(W,H*i/8);ctx.stroke();ctx.beginPath();ctx.moveTo(W*i/8,0);ctx.lineTo(W*i/8,H);ctx.stroke();}
+    ctx.strokeStyle = "#a0c890"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0,H*0.45); ctx.lineTo(W,H*0.45); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W*0.42,0); ctx.lineTo(W*0.42,H); ctx.stroke();
+    ctx.strokeStyle = "#90b880"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(0,H*0.3); ctx.bezierCurveTo(W*0.3,H*0.35,W*0.6,H*0.28,W,H*0.32); ctx.stroke();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.setLineDash([2,4]);
+    ctx.beginPath(); ctx.moveTo(0,H*0.45); ctx.lineTo(W,H*0.45); ctx.stroke(); ctx.setLineDash([]);
+
+    if (vis.length > 1) {
+      ctx.strokeStyle = "#1a56db"; ctx.lineWidth = 2.5; ctx.setLineDash([7,4]);
+      ctx.beginPath();
+      vis.forEach((d,i) => { const pt = toXY(d.lat||(18.50+i*0.013), d.lng||(-72.38+i*0.024), W, H); i===0?ctx.moveTo(pt.x,pt.y):ctx.lineTo(pt.x,pt.y); });
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    vis.forEach((d,i) => {
+      const c = STATUS_COLORS[d.status];
+      const pt = toXY(d.lat||(18.50+i*0.013), d.lng||(-72.38+i*0.024), W, H);
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 17, 0, Math.PI*2);
+      ctx.fillStyle = c.bg; ctx.fill();
+      ctx.strokeStyle = c.border; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = c.text; ctx.font = "bold 13px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(i+1), pt.x, pt.y);
+    });
+  }, [vis, selDrv, selDate]);
+
+  const onClick = e => {
+    const cv = canvasRef.current; const r = cv.getBoundingClientRect();
+    const mx = e.clientX-r.left, my = e.clientY-r.top;
+    const W = cv.width, H = cv.height, sx = r.width/W, sy = r.height/H;
+    for (let i=0; i<vis.length; i++) {
+      const d = vis[i];
+      const pt = { x:((d.lng||(-72.38+i*0.024))-LNG_MIN)/(LNG_MAX-LNG_MIN)*W, y:H-((d.lat||(18.50+i*0.013))-LAT_MIN)/(LAT_MAX-LAT_MIN)*H };
+      if (Math.sqrt((mx-pt.x*sx)**2+(my-pt.y*sy)**2) < 22) { setSelDel(selDel?.id===d.id?null:d); return; }
+    }
+    setSelDel(null);
+  };
+
+  return React.createElement('div', { style:{ padding:"16px 16px 90px", maxWidth:700, margin:"0 auto" } },
+    React.createElement('div', { style:{ display:"flex", gap:10, marginBottom:12, flexWrap:"wrap" } },
+      [ROLES.ADMIN, ROLES.STAFF].includes(me.role) &&
+        React.createElement('select', { style:{ ...SS, flex:1 }, value:selDrv, onChange:e=>setSelDrv(e.target.value) },
+          drivers.map(d => React.createElement('option', { key:d.id, value:d.id }, d.name))
+        ),
+      React.createElement('input', { type:"date", style:{ ...IS, flex:1 }, value:selDate, onChange:e=>setSelDate(e.target.value) })
+    ),
+    React.createElement('div', { style:{ position:"relative", borderRadius:16, overflow:"hidden", border:"2px solid #e2e8f0", marginBottom:16, boxShadow:"0 4px 20px rgba(0,0,0,0.08)" } },
+      React.createElement('canvas', { ref:canvasRef, width:680, height:340, onClick, style:{ width:"100%", height:"auto", display:"block", cursor:"pointer" } }),
+      React.createElement('div', { style:{ position:"absolute", top:10, left:10, background:"rgba(255,255,255,0.96)", borderRadius:8, padding:"5px 11px", fontSize:12, border:"1px solid #e2e8f0", fontWeight:600 } },
+        "🗺 ", dObj?.name, " · ", vis.length, " arrêt(s)"
+      ),
+      React.createElement('div', { style:{ position:"absolute", bottom:8, right:8, background:"rgba(255,255,255,0.9)", borderRadius:6, padding:"3px 8px", fontSize:10, color:"#94a3b8" } },
+        "Carte simulée — Google Maps en production"
+      )
+    ),
+    vis.length === 0 ?
+      React.createElement('div', { style:{ textAlign:"center", padding:40, color:"#94a3b8" } },
+        React.createElement('div', { style:{ fontSize:36, marginBottom:10 } }, "🗺"),
+        React.createElement('p', null, "Aucune livraison pour ce chauffeur ce jour")
+      ) :
+      vis.map((d, i) => {
+        const c = STATUS_COLORS[d.status];
+        return React.createElement('div', { key:d.id, onClick:()=>setSelDel(selDel?.id===d.id?null:d), style:{ display:"flex", gap:12, padding:12, borderRadius:12, marginBottom:8, background:selDel?.id===d.id?c.bg:"#fff", border:`1.5px solid ${selDel?.id===d.id?c.border:"#e2e8f0"}`, cursor:"pointer", transition:"all 0.15s" } },
+          React.createElement('div', { style:{ width:32, height:32, borderRadius:"50%", background:c.bg, border:`2px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:14, color:c.text, flexShrink:0 } }, i+1),
+          React.createElement('div', { style:{ flex:1, minWidth:0 } },
+            React.createElement('div', { style:{ fontWeight:800, fontSize:14, color:"#0f172a", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, d.clientName),
+            React.createElement('div', { style:{ fontSize:12, color:"#64748b", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, d.clientAddress),
+            React.createElement('div', { style:{ fontSize:12, color:"#94a3b8" } }, d.deliveryTimeRange)
+          ),
+          React.createElement(Badge, { status:d.status, sm:true })
+        );
+      }),
+    selDel && React.createElement('div', { style:{ position:"fixed", bottom:74, left:"50%", transform:"translateX(-50%)", width:"calc(100% - 32px)", maxWidth:440, background:"#fff", borderRadius:16, border:"1.5px solid #e2e8f0", padding:16, boxShadow:"0 12px 40px rgba(0,0,0,0.18)", zIndex:300 } },
+      React.createElement('div', { style:{ display:"flex", justifyContent:"space-between" } },
+        React.createElement('div', null,
+          React.createElement('div', { style:{ fontWeight:800, fontSize:15, color:"#0f172a" } }, selDel.clientName),
+          React.createElement('div', { style:{ fontSize:12, color:"#94a3b8" } }, selDel.invoiceNumber)
+        ),
+        React.createElement('button', { onClick:()=>setSelDel(null), style:{ background:"none", border:"none", cursor:"pointer", color:"#94a3b8", display:"flex" } }, React.createElement(Icon, { n:"x", s:18 }))
+      ),
+      React.createElement('div', { style:{ fontSize:13, color:"#64748b", marginTop:10, lineHeight:1.8 } },
+        "📍 ", selDel.clientAddress, React.createElement('br', null),
+        "📞 ", selDel.clientPhone, React.createElement('br', null),
+        "🕐 ", selDel.deliveryTimeRange
+      ),
+      React.createElement('div', { style:{ marginTop:10 } }, React.createElement(Badge, { status:selDel.status, sm:true }))
+    )
+  );
+};
+
+// ─── ADMIN PANEL ──────────────────────────────────────────────────────────────
+
+const AdminPanel = ({ users, setUsers, me, notifs }) => {
+  const [tab, setTab] = useState("users");
+  const [editing, setEditing] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+  const blank = { id:"", username:"", pin:"", role:ROLES.STAFF, name:"", phone:"", active:true };
+  const [form, setForm] = useState(blank);
+  const sf = (k,v) => setForm(f => ({...f,[k]:v}));
+
+  const save = () => {
+    if (!form.name || !form.username || form.pin.length !== 4) { alert("Nom, identifiant et PIN à 4 chiffres requis"); return; }
+    if (editing) setUsers(users.map(u => u.id===editing.id ? {...u,...form} : u));
+    else setUsers([...users, {...form, id:`u${Date.now()}`}]);
+    setEditing(null); setShowNew(false); setForm(blank);
+  };
+
+  const del = id => {
+    if (id === me.id) { alert("Impossible de supprimer votre propre compte"); return; }
+    if (window.confirm("Supprimer cet utilisateur ?")) setUsers(users.filter(u => u.id !== id));
+  };
+
+  const TABS_ADM = [["users","Utilisateurs"],["notifs","Notifications"],["wa","WhatsApp"]];
+
+  return React.createElement('div', { style:{ padding:"16px 16px 90px", maxWidth:700, margin:"0 auto" } },
+    React.createElement('h2', { style:{ margin:"0 0 16px", fontSize:22, fontWeight:900, color:"#0f172a", letterSpacing:"-0.5px" } }, "Administration"),
+    React.createElement('div', { style:{ display:"flex", gap:8, marginBottom:20 } },
+      TABS_ADM.map(([k,v]) =>
+        React.createElement('button', { key:k, onClick:()=>setTab(k), style:{ padding:"8px 16px", borderRadius:10, border:"1.5px solid", borderColor:tab===k?"#1a56db":"#e2e8f0", background:tab===k?"#1a56db":"#fff", color:tab===k?"#fff":"#64748b", fontSize:13, fontWeight:700, cursor:"pointer", transition:"all 0.15s" } }, v)
+      )
+    ),
+
+    tab === "users" && React.createElement(React.Fragment, null,
+      !showNew && !editing && React.createElement(Btn, { onClick:()=>setShowNew(true), icon:"plus", sm:true }, "Nouvel utilisateur"),
+      (showNew || editing) && React.createElement('div', { style:{ padding:"16px", background:"#f8fafc", borderRadius:14, marginBottom:16, border:"1px solid #e2e8f0" } },
+        React.createElement('p', { style:{ fontWeight:800, fontSize:14, color:"#0f172a", margin:"0 0 12px" } }, editing?"Modifier l'utilisateur":"Créer un utilisateur"),
+        React.createElement('div', { style:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" } },
+          React.createElement(Field, { label:"Nom complet", req:true }, React.createElement('input', { style:IS, value:form.name, onChange:e=>sf("name",e.target.value) })),
+          React.createElement(Field, { label:"Identifiant", req:true }, React.createElement('input', { style:IS, value:form.username, onChange:e=>sf("username",e.target.value) })),
+          React.createElement(Field, { label:"PIN (4 chiffres)", req:true }, React.createElement('input', { style:IS, value:form.pin, onChange:e=>sf("pin",e.target.value.replace(/\D/g,"").slice(0,4)), maxLength:4, placeholder:"••••" })),
+          React.createElement(Field, { label:"Rôle" }, React.createElement('select', { style:SS, value:form.role, onChange:e=>sf("role",e.target.value) }, Object.entries(ROLE_LABELS).map(([k,v]) => React.createElement('option', { key:k, value:k }, v)))),
+          React.createElement(Field, { label:"Téléphone" }, React.createElement('input', { style:IS, value:form.phone, onChange:e=>sf("phone",e.target.value) })),
+          React.createElement(Field, { label:"Statut" }, React.createElement('select', { style:SS, value:form.active?"on":"off", onChange:e=>sf("active",e.target.value==="on") }, React.createElement('option', { value:"on" }, "Actif"), React.createElement('option', { value:"off" }, "Inactif")))
+        ),
+        React.createElement('div', { style:{ display:"flex", gap:10, marginTop:10 } },
+          React.createElement(Btn, { onClick:save, icon:"check", sm:true }, editing?"Mettre à jour":"Créer"),
+          React.createElement(Btn, { variant:"ghost", sm:true, onClick:()=>{setEditing(null);setShowNew(false);setForm(blank);} }, "Annuler")
+        )
+      ),
+      React.createElement('div', { style:{ marginTop:14 } },
+        users.map(u =>
+          React.createElement('div', { key:u.id, style:{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderRadius:12, marginBottom:8, background:"#f8fafc", border:"1px solid #e2e8f0" } },
+            React.createElement('div', { style:{ display:"flex", gap:12, alignItems:"center" } },
+              React.createElement('div', { style:{ width:38, height:38, borderRadius:"50%", background:"linear-gradient(135deg,#1a56db,#3b82f6)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:"#fff", flexShrink:0 } }, u.name.charAt(0)),
+              React.createElement('div', null,
+                React.createElement('div', { style:{ fontWeight:700, fontSize:14, color:"#0f172a" } }, u.name),
+                React.createElement('div', { style:{ fontSize:12, color:"#64748b" } },
+                  "@", u.username, " · ", ROLE_LABELS[u.role],
+                  !u.active && React.createElement('span', { style:{ color:"#ef4444", marginLeft:6 } }, "Inactif")
+                )
+              )
+            ),
+            React.createElement('div', { style:{ display:"flex", gap:6 } },
+              React.createElement('button', { onClick:()=>{setEditing(u);setForm({...u});setShowNew(false);}, style:{ background:"none", border:"1px solid #e2e8f0", cursor:"pointer", padding:"6px 8px", color:"#64748b", borderRadius:8, display:"flex" } }, React.createElement(Icon, { n:"edit", s:15 })),
+              React.createElement('button', { onClick:()=>del(u.id), style:{ background:"none", border:"1px solid #fecaca", cursor:"pointer", padding:"6px 8px", color:"#ef4444", borderRadius:8, display:"flex" } }, React.createElement(Icon, { n:"del", s:15 }))
+            )
+          )
+        )
+      )
+    ),
+
+    tab === "notifs" && React.createElement('div', null,
+      React.createElement('div', { style:{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 } },
+        React.createElement('p', { style:{ fontSize:13, color:"#64748b", margin:0 } }, notifs.length, " notification(s) — mode simulation"),
+        notifs.length > 0 && React.createElement('span', { style:{ fontSize:11, background:"#dcfce7", color:"#166534", padding:"3px 8px", borderRadius:8, fontWeight:700 } }, "✓ Toutes envoyées (mock)")
+      ),
+      notifs.length === 0 ? React.createElement('div', { style:{ textAlign:"center", padding:40, color:"#94a3b8" } }, React.createElement('div', { style:{ fontSize:36 } }, "📩"), React.createElement('p', { style:{ marginTop:10 } }, "Aucune notification pour l'instant")) :
+      [...notifs].reverse().map((n,i) =>
+        React.createElement('div', { key:i, style:{ padding:"12px 14px", borderRadius:12, marginBottom:8, background:"#f0fdf4", border:"1px solid #86efac" } },
+          React.createElement('div', { style:{ display:"flex", justifyContent:"space-between", marginBottom:6 } },
+            React.createElement('span', { style:{ fontSize:12, fontWeight:800, color:"#16a34a" } }, "WhatsApp → ", n.to),
+            React.createElement('span', { style:{ fontSize:11, color:"#86efac" } }, new Date(n.sentAt).toLocaleTimeString("fr-FR"))
+          ),
+          React.createElement('pre', { style:{ margin:0, fontSize:12, whiteSpace:"pre-wrap", color:"#166534", fontFamily:"system-ui,sans-serif", lineHeight:1.6 } }, n.message)
+        )
+      )
+    ),
+
+    tab === "wa" && React.createElement('div', null,
+      React.createElement('div', { style:{ padding:16, background:"#fff7ed", borderRadius:12, marginBottom:16, border:"1px solid #fed7aa" } },
+        React.createElement('p', { style:{ fontWeight:800, margin:"0 0 4px", color:"#c2410c" } }, "⚠ Mode actuel : SIMULATION"),
+        React.createElement('p', { style:{ margin:0, color:"#c2410c", fontSize:13 } }, "Les messages sont enregistrés uniquement. Aucun envoi réel.")
+      ),
+      React.createElement('p', { style:{ fontWeight:800, fontSize:15, color:"#0f172a", marginBottom:14 } }, "Comparatif des solutions WhatsApp"),
+      [
+        ["⭐ Meta WhatsApp Business API", "Recommandé pour la production", "0 USD pour les 1 000 premières conversations/mois. Nécessite un compte Meta Business vérifié, un numéro dédié, et l'approbation des modèles de messages. Délai d'activation : 2-5 jours.", "#eff6ff","#bfdbfe","#1e40af"],
+        ["Twilio WhatsApp", "Recommandé pour démarrer rapidement", "~0.005 USD/message. Sandbox gratuit pour les tests. Activation en 10 minutes. Facile à intégrer via l'API REST. Idéal pour le démarrage.", "#f0fdf4","#bbf7d0","#166534"],
+        ["Wati / WaPulse", "Solution tout-en-un", "Abonnements mensuels de 30-150 USD. Interface no-code incluse. Convient aux équipes sans développeur.", "#fafafa","#e2e8f0","#475569"],
+      ].map(([title, sub, desc, bg, border, color]) =>
+        React.createElement('div', { key:title, style:{ background:bg, borderRadius:12, padding:14, marginBottom:10, border:`1px solid ${border}` } },
+          React.createElement('p', { style:{ fontWeight:800, margin:"0 0 2px", color } }, title),
+          React.createElement('p', { style:{ fontSize:12, color, opacity:0.8, margin:"0 0 6px", fontWeight:600 } }, sub),
+          React.createElement('p', { style:{ margin:0, fontSize:13, color:"#475569" } }, desc)
+        )
+      ),
+      React.createElement('div', { style:{ padding:14, background:"#f8fafc", borderRadius:12, marginTop:14, border:"1px solid #e2e8f0" } },
+        React.createElement('p', { style:{ fontWeight:800, fontSize:13, color:"#0f172a", margin:"0 0 8px" } }, "Pour activer en production :"),
+        React.createElement('code', { style:{ fontSize:12, color:"#1a56db", display:"block", background:"#eff6ff", padding:10, borderRadius:8, lineHeight:1.8 } },
+          "1. Choisir Twilio ou Meta API", React.createElement('br', null),
+          "2. Ajouter les clés API dans .env", React.createElement('br', null),
+          "3. Changer NS.mode = 'twilio' dans le code", React.createElement('br', null),
+          "4. Implémenter NS.send() pour appeler l'API"
+        )
+      )
+    )
+  );
+};
+
+// ─── ROOT APP ─────────────────────────────────────────────────────────────────
+
+function App() {
+  const [users, setUsers]         = useLS("nm_users_v3", SEED_USERS);
+  const [deliveries, setDeliveries] = useLS("nm_deliveries_v3", SEED_DELIVERIES);
+  const [clients, setClients]     = useLS("nm_clients_v3", SEED_CLIENTS);
+  const [session, setSession]     = useLS("nm_session_v3", null);
+  const [view, setView]           = useState(0);
+  const [showForm, setShowForm]   = useState(false);
+  const [selDel, setSelDel]       = useState(null);
+  const [notifs, setNotifs]       = useLS("nm_notifs_v3", []);
+  const touchX = useRef(null);
+
+  const addNotif = (to, msg) => setNotifs(p => [...p, NS.send(to, msg)]);
+
+  const onTouchStart = e => touchX.current = e.touches[0].clientX;
+  const onTouchEnd = e => {
+    if (!touchX.current) return;
+    const dx = e.changedTouches[0].clientX - touchX.current;
+    const max = session?.role === ROLES.ADMIN ? 3 : 2;
+    if (Math.abs(dx) > 55) { dx < 0 ? setView(v=>Math.min(v+1,max)) : setView(v=>Math.max(v-1,0)); }
+    touchX.current = null;
+  };
+
+  if (!session) return React.createElement(Login, { users, onLogin:setSession });
+
+  const isAdmin = session.role === ROLES.ADMIN;
+  const TABS = [
+    { l:"Livraisons", i:"list" }, { l:"Calendrier", i:"cal" }, { l:"Carte", i:"map" },
+    ...(isAdmin ? [{ l:"Admin", i:"cog" }] : [])
+  ];
+  const pendingN = deliveries.filter(d => d.status === STATUS.AWAITING).length;
+
+  const handleSave = form => {
+    const id = `d${Date.now()}`;
+    const driver = users.find(u => u.id === form.driverId);
+    const d = { ...form, id, lat:18.50+Math.random()*0.06, lng:-72.40+Math.random()*0.14, createdBy:session.id, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() };
+    setDeliveries(p => [...p, d]);
+    if (!clients.find(c => c.name === form.clientName)) setClients(p => [...p, { name:form.clientName, phone:form.clientPhone, address:form.clientAddress }]);
+    addNotif(form.clientPhone, NS.t.initial(d));
+    if (form.deliveryDate === todayStr && driver) addNotif(driver.phone, NS.t.driver(d, driver.name));
+    setShowForm(false);
+  };
+
+  const handleStatus = (id, newStatus, extra={}) => {
+    const prev = deliveries.find(d => d.id===id);
+    const upd = { ...prev, ...extra, status:newStatus, updatedAt:new Date().toISOString() };
+    setDeliveries(ds => ds.map(d => d.id===id ? upd : d));
+    const driver = users.find(u => u.id===upd.driverId);
+    const salesRep = users.find(u => u.name===upd.salesRepName);
+    if (newStatus === STATUS.DELIVERED) {
+      addNotif(upd.clientPhone, NS.t.delivered(upd));
+      if (salesRep) addNotif(salesRep.phone, `[Rep] Livraison confirmée : ${upd.clientName} — ${upd.invoiceNumber}`);
+    }
+    if (newStatus === STATUS.DELAYED) {
+      addNotif(upd.clientPhone, NS.t.delayed(upd));
+      if (salesRep) addNotif(salesRep.phone, `[Rep] Retard : ${upd.clientName} → ${upd.deliveryDate} ${upd.deliveryTimeRange}`);
+    }
+    if (newStatus === STATUS.APPROVED && driver) addNotif(driver.phone, NS.t.approved(upd, driver.name));
+    if (newStatus === STATUS.REJECTED && driver) addNotif(driver.phone, NS.t.rejected(upd, driver.name));
+  };
+
+  const handleReschedule = (id, nd, nt, nr) => {
+    const prev = deliveries.find(d => d.id===id);
+    const upd = { ...prev, deliveryDate:nd, deliveryTime:nt, deliveryTimeRange:nr, updatedAt:new Date().toISOString() };
+    setDeliveries(ds => ds.map(d => d.id===id ? upd : d));
+    const driver = users.find(u => u.id===upd.driverId);
+    const salesRep = users.find(u => u.name===upd.salesRepName);
+    addNotif(upd.clientPhone, NS.t.delayed(upd));
+    if (salesRep) addNotif(salesRep.phone, `[Rep] Reprogrammation : ${upd.clientName} → ${nd} ${nr}`);
+    if (driver && nd === todayStr) addNotif(driver.phone, NS.t.driver(upd, driver.name));
+  };
+
+  return React.createElement('div', { style:{ minHeight:"100vh", background:"#f1f5f9" }, onTouchStart, onTouchEnd },
+
+    // ── Top Bar ──
+    React.createElement('div', { style:{ position:"sticky", top:0, zIndex:500, background:"#fff", borderBottom:"1px solid #f1f5f9", padding:"0 16px", display:"flex", alignItems:"center", justifyContent:"space-between", height:56, boxShadow:"0 1px 3px rgba(0,0,0,0.06)" } },
+      React.createElement('div', { style:{ display:"flex", alignItems:"center", gap:10 } },
+        React.createElement('div', { style:{ width:32, height:32, borderRadius:9, background:"linear-gradient(135deg,#1a56db,#3b82f6)", display:"flex", alignItems:"center", justifyContent:"center" } }, React.createElement(Icon, { n:"truck", s:17, c:"#fff" })),
+        React.createElement('span', { style:{ fontWeight:900, fontSize:17, color:"#0f172a", letterSpacing:"-0.3px" } }, "NovoMossa")
+      ),
+      React.createElement('div', { style:{ display:"flex", alignItems:"center", gap:12 } },
+        pendingN > 0 && React.createElement('div', { style:{ position:"relative", cursor:"pointer" }, onClick:()=>isAdmin&&setView(3) },
+          React.createElement(Icon, { n:"bell", s:20, c:"#64748b" }),
+          React.createElement('div', { style:{ position:"absolute", top:-6, right:-6, width:17, height:17, borderRadius:"50%", background:"#ef4444", color:"#fff", fontSize:9, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800 } }, pendingN)
+        ),
+        React.createElement('div', { style:{ display:"flex", alignItems:"center", gap:8 } },
+          React.createElement('div', { style:{ width:30, height:30, borderRadius:"50%", background:"linear-gradient(135deg,#1a56db,#3b82f6)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" } }, session.name.charAt(0)),
+          React.createElement('span', { style:{ fontSize:12, color:"#64748b", maxWidth:90, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, session.name)
+        ),
+        React.createElement('button', { onClick:()=>setSession(null), style:{ background:"none", border:"1px solid #e2e8f0", cursor:"pointer", padding:7, color:"#64748b", borderRadius:8, display:"flex" }, title:"Se déconnecter" }, React.createElement(Icon, { n:"out", s:16 }))
+      )
+    ),
+
+    // ── Views ──
+    view === 0 && React.createElement(ListView,   { deliveries, users, me:session, onNew:()=>setShowForm(true), onOpen:setSelDel }),
+    view === 1 && React.createElement(CalView,    { deliveries, users, me:session, onOpen:setSelDel, onReschedule:handleReschedule }),
+    view === 2 && React.createElement(MapView,    { deliveries, users, me:session }),
+    view === 3 && isAdmin && React.createElement(AdminPanel, { users, setUsers, me:session, notifs }),
+
+    // ── Bottom Nav ──
+    React.createElement('div', { style:{ position:"fixed", bottom:0, left:0, right:0, zIndex:500, background:"#fff", borderTop:"1px solid #f1f5f9", display:"flex", height:64, boxShadow:"0 -2px 10px rgba(0,0,0,0.06)" } },
+      TABS.map((tab, i) =>
+        React.createElement('button', { key:tab.l, onClick:()=>setView(i), style:{ flex:1, background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4, color:view===i?"#1a56db":"#94a3b8", transition:"color 0.15s", position:"relative" } },
+          view === i && React.createElement('div', { style:{ position:"absolute", top:0, left:"25%", right:"25%", height:2, background:"#1a56db", borderRadius:"0 0 2px 2px" } }),
+          React.createElement(Icon, { n:tab.i, s:21, c:view===i?"#1a56db":"#94a3b8" }),
+          React.createElement('span', { style:{ fontSize:10, fontWeight:view===i?800:400 } }, tab.l)
+        )
+      )
+    ),
+
+    // ── FAB ──
+    view === 0 && [ROLES.ADMIN, ROLES.STAFF, ROLES.DRIVER].includes(session.role) &&
+      React.createElement('button', { onClick:()=>setShowForm(true), style:{ position:"fixed", bottom:80, right:20, width:54, height:54, borderRadius:"50%", background:"linear-gradient(135deg,#1a56db,#3b82f6)", border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 6px 24px rgba(26,86,219,0.45)", zIndex:400 } },
+        React.createElement(Icon, { n:"plus", s:24, c:"#fff" })
+      ),
+
+    // ── Modals ──
+    showForm && React.createElement(DelForm, { users, clients, onSave:handleSave, onClose:()=>setShowForm(false), me:session, editing:null }),
+    selDel && React.createElement(DetailModal, {
+      del:selDel, users, me:session,
+      onClose:()=>setSelDel(null),
+      onStatus:(id,s,e)=>{ handleStatus(id,s,e); setSelDel(null); }
+    })
+  );
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById('root'));
+</script>
+</body>
+</html>
